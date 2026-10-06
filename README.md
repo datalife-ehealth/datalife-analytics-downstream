@@ -97,15 +97,23 @@ reproduce the study.
 
 ## Getting started
 
-There is no package to install yet:
+Python 3.11 or newer.
 
 ```bash
 git clone https://github.com/datalife-ehealth/datalife-analytics-downstream.git
 cd datalife-analytics-downstream
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e ".[dev]" -c constraints.txt
+pytest
+datalife-fixtures generate --seed 42 --subjects 1000 --format parquet --out data/generated
+datalife-fixtures validate data/generated
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md), then propose a synthetic dataset contract or
-a statistically transparent baseline with an evaluation plan.
+The generator and draft v0.1.0 data contract are documented in
+[docs/generator.md](docs/generator.md). Generated data stays in the ignored `data/`
+folder. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes to the
+contract or adding a baseline.
 
 ## Stewardship and contact
 
