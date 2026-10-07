@@ -207,3 +207,15 @@ def _check_relations(
     dup_marker = int(obs.duplicated(["encounter_id", "marker_code"]).sum())
     if dup_marker:
         errors.append(f"observations: {dup_marker} repeated marker(s) within one encounter")
+        return
+
+    bp = obs[obs["marker_code"].isin(["SBP", "DBP"])].pivot(
+        index="encounter_id", columns="marker_code", values="value"
+    )
+    bp = bp.reindex(columns=["SBP", "DBP"])
+    half_pairs = int(bp.isna().sum(axis=1).eq(1).sum())
+    if half_pairs:
+        errors.append(f"observations: {half_pairs} encounter(s) with SBP or DBP but not both")
+    inverted = int((bp["DBP"] >= bp["SBP"]).sum())
+    if inverted:
+        errors.append(f"observations: {inverted} encounter(s) where DBP is not below SBP")

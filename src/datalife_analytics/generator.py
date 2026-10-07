@@ -24,7 +24,7 @@ import pandas as pd
 from .contract import Contract, load_contract
 
 GENERATOR_NAME = "datalife-longitudinal"
-GENERATOR_VERSION = "0.1.0"
+GENERATOR_VERSION = "0.1.1"
 
 MAX_SUBJECTS = 100_000
 MIN_WINDOW_DAYS = 30
@@ -42,7 +42,7 @@ SCHEDULE_PROB: dict[str, dict[str, float]] = {
     "telehealth": {"SBP": 0.50, "DBP": 0.50, "BMI": 0.20, "GLU": 0.05, "HBA1C": 0.0, "HGB": 0.0},
 }
 # Within-subject visit-to-visit noise (standard deviation), in marker units.
-WITHIN_SD = {"SBP": 7.0, "DBP": 5.0, "GLU": 0.6, "HBA1C": 0.2, "HGB": 0.5, "BMI": 0.4}
+WITHIN_SD = {"SBP": 7.0, "DBP": 5.0, "GLU": 0.5, "HBA1C": 0.2, "HGB": 0.5, "BMI": 0.4}
 DECIMALS = {"SBP": 0, "DBP": 0, "GLU": 1, "HBA1C": 1, "HGB": 1, "BMI": 1}
 
 
@@ -89,14 +89,15 @@ def _ts(dt: datetime) -> str:
 
 
 def _baselines(rng: np.random.Generator, sex: str, age_idx: int, z: float) -> dict[str, float]:
-    hba1c = 5.4 + 0.15 * age_idx + 0.5 * z + rng.normal(0, 0.4)
+    hba1c = 5.3 + 0.12 * age_idx + 0.45 * z + rng.normal(0, 0.3)
     hgb_mean = {"F": 13.3, "M": 14.8, "U": 14.0}[sex]
     return {
         "SBP": 118 + 6 * age_idx + 8 * z + rng.normal(0, 8),
         "DBP": 76 + 2 * age_idx + 4 * z + rng.normal(0, 6),
         "BMI": 26 + 0.6 * age_idx + 2.5 * z + rng.normal(0, 3.5),
-        "HBA1C": hba1c,
-        "GLU": 1.59 * hba1c - 2.59 + rng.normal(0, 0.5),
+        "HBA1C": max(hba1c, 4.3),
+        # Fasting glucose sits below the HbA1c-implied average glucose (1.59 * A1c - 2.59).
+        "GLU": max(1.59 * hba1c - 3.3 + rng.normal(0, 0.4), 4.0),
         "HGB": hgb_mean + rng.normal(0, 1.0),
     }
 
@@ -137,43 +138,36 @@ def _simulate_subject(
     base = _baselines(rng, sex, age_idx, z)
     trend = _annual_trend(rng, z)
 
-    origin = datetime.combine(enrolled, datetime.min.time(), tzinfo=UTC)
-    end_dt = datetime.combine(cfg.end, datetime.min.time(), tzinfo=UTC)
-    active_minutes = int((end_dt - origin).total_seconds() // 60)
-    years_active = active_minutes / (365.25 * 24 * 60)
+    active_days = (cfg.end - enrolled).days
+    if active_days <= 0:
+        return subject
     rate = 3.0 + 1.5 * max(z, 0.0)
-    n_enc = int(rng.poisson(rate * years_active))
-    if n_enc == 0 or active_minutes <= 0:
+    n_enc = int(rng.poisson(rate * active_days / 365.25))
+    if n_enc == 0:
         return subject
 
-    offsets = np.unique(rng.integers(0, active_minutes, size=n_enc))
+    day_offsets = np.unique(rng.integers(0, active_days, size=n_enc))
     p_urgent = 0.10 + (0.10 if z > 1 else 0.0)
     type_p = [0.80 - p_urgent, p_urgent, 0.20]
-    markers = list(contract.markers)
+    used_days: set[date] = set()
 
-    for off in offsets:
-        at = origin + timedelta(minutes=int(off))
+    for off in day_offsets:
         etype = ENCOUNTER_TYPES[int(rng.choice(3, p=type_p))]
-        t_years = int(off) / (365.25 * 24 * 60)
-        ts = _ts(at)
+        when = _visit_time(rng, enrolled + timedelta(days=int(off)), etype)
+        if when is None or when.date() >= cfg.end or when.date() in used_days:
+            continue
+        used_days.add(when.date())
+        t_years = (when.date() - enrolled).days / 365.25
+        ts = _ts(when)
         enc_ref = len(subject.encounters)
         subject.encounters.append(
             {"subject_key": key, "encounter_at": ts, "encounter_type": etype, "_ref": enc_ref}
         )
-        draws = rng.random(len(markers))
-        noise = rng.normal(0, 1, len(markers))
-        resulted = rng.random(len(markers))
-        kinds = rng.random(len(markers))
-        for j, code in enumerate(markers):
-            if draws[j] >= SCHEDULE_PROB[etype][code]:
-                continue
-            lo, hi = contract.markers[code]["range"]
-            raw = base[code] + trend[code] * t_years + WITHIN_SD[code] * noise[j]
-            value: float | None = round(float(np.clip(raw, lo, hi)), DECIMALS[code])
+        for code, value in _measure(rng, etype, base, trend, t_years, contract):
             reason = None
-            if resulted[j] < cfg.not_resulted_rate:
+            if code in LAB_MARKERS and rng.random() < cfg.not_resulted_rate:
                 value, reason = None, "not_resulted"
-            source = "xml" if code in LAB_MARKERS and kinds[j] < 0.6 else "json"
+            source = "xml" if code in LAB_MARKERS and rng.random() < 0.6 else "json"
             subject.observations.append(
                 {
                     "subject_key": key,
@@ -187,6 +181,48 @@ def _simulate_subject(
                 }
             )
     return subject
+
+
+def _visit_time(rng: np.random.Generator, day: date, etype: str) -> datetime | None:
+    """Routine and telehealth: weekdays 08:00-17:00. Urgent: any day 07:00-23:00."""
+    if etype == "urgent":
+        minute = int(rng.integers(7 * 60, 23 * 60))
+    else:
+        if day.weekday() >= 5:  # weekend: move to the following Monday
+            day = day + timedelta(days=7 - day.weekday())
+        minute = int(rng.integers(8 * 60, 17 * 60))
+    return datetime.combine(day, datetime.min.time(), tzinfo=UTC) + timedelta(minutes=minute)
+
+
+def _measure(
+    rng: np.random.Generator,
+    etype: str,
+    base: dict[str, float],
+    trend: dict[str, float],
+    t_years: float,
+    contract: Contract,
+) -> list[tuple[str, float]]:
+    """Values for the markers taken at one encounter, in contract marker order."""
+    probs = SCHEDULE_PROB[etype]
+    taken = {code: rng.random() < probs[code] for code in contract.markers}
+    taken["DBP"] = taken["SBP"]  # blood pressure is always recorded as a pair
+
+    def level(code: str, z: float) -> float:
+        lo, hi = contract.markers[code]["range"]
+        raw = base[code] + trend[code] * t_years + WITHIN_SD[code] * z
+        return float(np.clip(raw, lo, hi))
+
+    sbp_z = rng.normal()
+    values = {
+        "SBP": level("SBP", sbp_z),
+        # Diastolic noise is partly shared with systolic, and pulse pressure stays >= 15 mmHg.
+        "DBP": level("DBP", 0.6 * sbp_z + 0.8 * rng.normal()),
+    }
+    values["DBP"] = min(values["DBP"], values["SBP"] - 15)
+    for code in ("GLU", "HBA1C", "HGB", "BMI"):
+        values[code] = level(code, rng.normal())
+
+    return [(code, round(values[code], DECIMALS[code])) for code in contract.markers if taken[code]]
 
 
 def generate(

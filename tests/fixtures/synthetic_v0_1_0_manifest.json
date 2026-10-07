@@ -11,19 +11,19 @@
   "contract_version": "0.1.0",
   "format": "csv",
   "generator": "datalife-longitudinal",
-  "generator_version": "0.1.0",
+  "generator_version": "0.1.1",
   "package_version": "0.1.0.dev0",
   "provenance": "Synthetic records produced by the DataLife longitudinal fixture generator. Not derived from real patients. Not suitable for clinical inference.",
   "tables": {
     "encounters": {
-      "canonical_csv_sha256": "0529f95667b1fd8e4feac444e020e8f3a84cb53e7efc0f44a563cfce547aeda9",
+      "canonical_csv_sha256": "48070e1ae87681990d33a558b548a95e07d21631b693bf6cacb317ddb2630149",
       "path": "synthetic_v0_1_0_encounters.csv",
-      "rows": 132
+      "rows": 131
     },
     "observations": {
-      "canonical_csv_sha256": "cad710883f4c9d5be615f8d462c4c3ab60e44cd4796f84e1db2cc51309e0a6d5",
+      "canonical_csv_sha256": "29cf35fd6ed8d7c0a0417cf68237deb2bd1c2aa9fdaa5fbe053a007c4953d709",
       "path": "synthetic_v0_1_0_observations.csv",
-      "rows": 391
+      "rows": 402
     },
     "subjects": {
       "canonical_csv_sha256": "93c1c50fb98a2e4c864762a3655744770b7405ec8ef246bcc11457518aad454e",

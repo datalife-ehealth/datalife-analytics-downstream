@@ -85,6 +85,20 @@ def test_missing_reason_inconsistent(tables_copy):
     assert "missing_reason does not match" in _errors(tables_copy)
 
 
+def test_unpaired_blood_pressure(tables_copy):
+    obs = tables_copy["observations"]
+    row = obs.index[obs["marker_code"] == "DBP"][0]
+    tables_copy["observations"] = obs.drop(index=row).reset_index(drop=True)
+    assert "SBP or DBP but not both" in _errors(tables_copy)
+
+
+def test_diastolic_above_systolic(tables_copy):
+    obs = tables_copy["observations"]
+    enc = obs.loc[obs["marker_code"] == "SBP", "encounter_id"].iloc[0]
+    obs.loc[(obs["encounter_id"] == enc) & (obs["marker_code"] == "DBP"), "value"] = 239.0
+    assert "DBP is not below SBP" in _errors(tables_copy)
+
+
 def test_errors_do_not_echo_values(tables_copy):
     secret = "syn-deadbeefdeadbeef-LEAK"
     tables_copy["subjects"].loc[0, "subject_key"] = secret

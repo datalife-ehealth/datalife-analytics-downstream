@@ -81,7 +81,12 @@
   },
   "missingness": {
     "unscheduled": "A marker not measured at an encounter has no row. Absence of a row is structural, not missing data.",
-    "not_resulted": "A scheduled marker whose result never arrived has a row with value null and missing_reason not_resulted."
+    "not_resulted": "A scheduled laboratory marker (GLU, HBA1C, HGB) whose result never arrived has a row with value null and missing_reason not_resulted."
+  },
+  "clinical_plausibility": {
+    "blood_pressure": "SBP and DBP are recorded together at an encounter; DBP is always below SBP.",
+    "visit_hours": "Routine and telehealth encounters fall on weekdays 08:00-17:00 UTC; urgent encounters any day 07:00-23:00 UTC. At most one encounter per subject per day.",
+    "glucose": "GLU is fasting glucose and is generated consistently with HBA1C."
   },
   "temporal_semantics": {
     "timezone": "UTC",

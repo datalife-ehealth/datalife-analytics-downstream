@@ -69,6 +69,31 @@ def test_timestamps_inside_window(small_config, small_tables):
     assert enc.max() < pd.Timestamp(small_config.end, tz="UTC")
 
 
+def test_visit_hours_are_plausible(small_tables):
+    enc = small_tables["encounters"]
+    at = pd.to_datetime(enc["encounter_at"], utc=True)
+    clinic = enc["encounter_type"] != "urgent"
+    assert (at[clinic].dt.weekday < 5).all()
+    assert at[clinic].dt.hour.between(8, 16).all()
+    assert at[~clinic].dt.hour.between(7, 22).all()
+
+
+def test_one_encounter_per_subject_per_day(small_tables):
+    enc = small_tables["encounters"]
+    day = pd.to_datetime(enc["encounter_at"], utc=True).dt.date
+    assert not pd.DataFrame({"s": enc["subject_key"], "d": day}).duplicated().any()
+
+
+def test_glucose_consistent_with_hba1c(small_config):
+    obs = generate(replace(small_config, n_subjects=400))["observations"]
+    means = obs.pivot_table(index="subject_key", columns="marker_code", values="value")
+    both = means[["GLU", "HBA1C"]].dropna()
+    high_glu = (both["GLU"] >= 7.0).mean()
+    high_a1c = (both["HBA1C"] >= 6.5).mean()
+    assert abs(high_glu - high_a1c) < 0.10
+    assert both.corr().iloc[0, 1] > 0.6
+
+
 def test_rows_are_sorted(small_tables):
     contract = load_contract()
     for name, df in small_tables.items():
