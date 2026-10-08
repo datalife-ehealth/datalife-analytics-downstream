@@ -1,0 +1,97 @@
+{
+  "contract": "datalife-synthetic-longitudinal",
+  "version": "0.1.0",
+  "status": "draft",
+  "description": "Draft synthetic longitudinal data contract for issue #1. All records are generated; none are derived from real patients. Not suitable for clinical inference.",
+  "versioning": {
+    "scheme": "semver",
+    "major": "Removing or renaming a field, changing a type, unit, or the meaning of a value.",
+    "minor": "Adding an optional field, table, or allowed categorical value.",
+    "patch": "Documentation or generator fixes that do not change the schema."
+  },
+  "forbidden_field_patterns": [
+    "name",
+    "cpf",
+    "ssn",
+    "national_id",
+    "passport",
+    "phone",
+    "mobile",
+    "email",
+    "address",
+    "street",
+    "postcode",
+    "zip",
+    "birth",
+    "dob",
+    "emergency_contact",
+    "ip_address",
+    "device_id"
+  ],
+  "tables": {
+    "subjects": {
+      "description": "One row per synthetic subject. Static attributes at coarse granularity only.",
+      "primary_key": ["subject_key"],
+      "sort_by": ["subject_key"],
+      "fields": [
+        {"name": "subject_key", "type": "string", "nullable": false, "pattern": "^syn-[0-9a-f]{16}$", "description": "Opaque synthetic subject key. Random, not derived from any identity."},
+        {"name": "sex", "type": "category", "nullable": false, "allowed": ["F", "M", "U"], "description": "Recorded sex. U = unknown or not recorded."},
+        {"name": "age_band", "type": "category", "nullable": false, "allowed": ["18-29", "30-44", "45-59", "60-74", "75+"], "description": "Age band at enrolment. Exact age and birth date are never generated."},
+        {"name": "region", "type": "category", "nullable": false, "allowed": ["R01", "R02", "R03", "R04", "R05", "R06", "R07", "R08"], "description": "Synthetic coarse region code. Does not map to a real geography."},
+        {"name": "enrolled_on", "type": "date", "nullable": false, "description": "Date the subject's synthetic record starts."}
+      ]
+    },
+    "encounters": {
+      "description": "One row per synthetic care contact. Observations attach to an encounter.",
+      "primary_key": ["encounter_id"],
+      "foreign_keys": {"subject_key": "subjects.subject_key"},
+      "sort_by": ["subject_key", "encounter_at", "encounter_id"],
+      "fields": [
+        {"name": "encounter_id", "type": "string", "nullable": false, "pattern": "^enc-[0-9]{7}$", "description": "Sequential synthetic encounter identifier."},
+        {"name": "subject_key", "type": "string", "nullable": false, "pattern": "^syn-[0-9a-f]{16}$", "description": "Subject the encounter belongs to."},
+        {"name": "encounter_at", "type": "timestamp", "nullable": false, "description": "UTC timestamp of the encounter, minute precision."},
+        {"name": "encounter_type", "type": "category", "nullable": false, "allowed": ["routine", "urgent", "telehealth"], "description": "Kind of contact."}
+      ]
+    },
+    "observations": {
+      "description": "One row per marker measurement scheduled at an encounter. Long format.",
+      "primary_key": ["observation_id"],
+      "foreign_keys": {"subject_key": "subjects.subject_key", "encounter_id": "encounters.encounter_id"},
+      "sort_by": ["subject_key", "observed_at", "marker_code", "observation_id"],
+      "fields": [
+        {"name": "observation_id", "type": "string", "nullable": false, "pattern": "^obs-[0-9]{8}$", "description": "Sequential synthetic observation identifier."},
+        {"name": "subject_key", "type": "string", "nullable": false, "pattern": "^syn-[0-9a-f]{16}$", "description": "Subject the observation belongs to."},
+        {"name": "encounter_id", "type": "string", "nullable": false, "pattern": "^enc-[0-9]{7}$", "description": "Encounter at which the observation was taken."},
+        {"name": "observed_at", "type": "timestamp", "nullable": false, "description": "UTC timestamp of the measurement, equal to the encounter timestamp in v0.1.0."},
+        {"name": "marker_code", "type": "category", "nullable": false, "allowed": ["SBP", "DBP", "GLU", "HBA1C", "HGB", "BMI"], "description": "Synthetic marker code. See markers."},
+        {"name": "value", "type": "float", "nullable": true, "min": 0, "description": "Measured value in the marker's unit. Null when the measurement was scheduled but not resulted."},
+        {"name": "unit", "type": "category", "nullable": false, "allowed": ["mmHg", "mmol/L", "%", "g/dL", "kg/m2"], "description": "Unit, fixed per marker."},
+        {"name": "source_kind", "type": "category", "nullable": false, "allowed": ["json", "xml"], "description": "Ingestion payload kind as accepted by datalife-datalake-core."},
+        {"name": "missing_reason", "type": "category", "nullable": true, "allowed": ["not_resulted"], "description": "Why value is null. Null when value is present."}
+      ]
+    }
+  },
+  "markers": {
+    "SBP": {"unit": "mmHg", "label": "Systolic blood pressure", "range": [70, 240]},
+    "DBP": {"unit": "mmHg", "label": "Diastolic blood pressure", "range": [40, 140]},
+    "GLU": {"unit": "mmol/L", "label": "Fasting glucose", "range": [2.5, 30.0]},
+    "HBA1C": {"unit": "%", "label": "Glycated haemoglobin", "range": [3.5, 16.0]},
+    "HGB": {"unit": "g/dL", "label": "Haemoglobin", "range": [5.0, 20.0]},
+    "BMI": {"unit": "kg/m2", "label": "Body mass index", "range": [13.0, 60.0]}
+  },
+  "missingness": {
+    "unscheduled": "A marker not measured at an encounter has no row. Absence of a row is structural, not missing data.",
+    "not_resulted": "A scheduled laboratory marker (GLU, HBA1C, HGB) whose result never arrived has a row with value null and missing_reason not_resulted."
+  },
+  "clinical_plausibility": {
+    "blood_pressure": "SBP and DBP are recorded together at an encounter; DBP is always below SBP.",
+    "visit_hours": "Routine and telehealth encounters fall on weekdays 08:00-17:00 UTC; urgent encounters any day 07:00-23:00 UTC. At most one encounter per subject per day.",
+    "glucose": "GLU is fasting glucose and is generated consistently with HBA1C."
+  },
+  "temporal_semantics": {
+    "timezone": "UTC",
+    "precision": "minute",
+    "window": "All encounter and observation timestamps fall on or after the subject's enrolled_on date and inside the configured generation window.",
+    "ordering": "Files are written sorted by each table's sort_by keys."
+  }
+}

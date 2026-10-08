@@ -24,7 +24,7 @@ coverage.xml
 *.nbconvert.ipynb
 
 # Data, artifacts, and models
-data/
+data/*
 artifacts/
 models/
 reports/generated/

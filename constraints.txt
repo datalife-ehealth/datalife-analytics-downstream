@@ -1,0 +1,15 @@
+# Exact versions the test suite and committed fixture were verified with.
+# Install with: pip install -e ".[dev]" -c constraints.txt
+# Refresh deliberately (pip freeze --exclude-editable) and note it in the pull request.
+iniconfig==2.3.0
+numpy==2.4.4 ; python_version < "3.12"
+numpy==2.5.3 ; python_version >= "3.12"
+packaging==26.3
+pandas==3.0.6
+pluggy==1.6.0
+pyarrow==25.0.1
+Pygments==2.21.0
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+ruff==0.16.10
+six==1.17.0
