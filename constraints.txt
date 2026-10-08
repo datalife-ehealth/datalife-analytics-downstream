@@ -2,7 +2,8 @@
 # Install with: pip install -e ".[dev]" -c constraints.txt
 # Refresh deliberately (pip freeze --exclude-editable) and note it in the pull request.
 iniconfig==2.3.0
-numpy==2.5.3
+numpy==2.4.4 ; python_version < "3.12"
+numpy==2.5.3 ; python_version >= "3.12"
 packaging==26.3
 pandas==3.0.6
 pluggy==1.6.0
