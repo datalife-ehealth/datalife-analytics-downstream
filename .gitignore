@@ -47,15 +47,14 @@ wandb/
 !tests/fixtures/*.csv
 
 # Secrets and local configuration
-.env
-.env.*
 !.env.example
 *.pem
 *.key
 
 # Editors and operating systems
 .idea/
-.vscode/
 .DS_Store
 Thumbs.db
 *.log
+config.bat
+node_modules
