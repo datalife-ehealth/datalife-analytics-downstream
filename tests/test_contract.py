@@ -108,3 +108,54 @@ def test_errors_do_not_echo_values(tables_copy):
 def test_nulls_in_required_field(tables_copy):
     tables_copy["encounters"].loc[0, "encounter_type"] = pd.NA
     assert "null value(s) in a non-nullable field" in _errors(tables_copy)
+
+
+@pytest.mark.parametrize(
+    "value, problem",
+    [
+        ("2024-05-06T15:28:00+00:00", "value(s) not in canonical timestamp format"),
+        ("2024-05-06T15:28:17Z", "value(s) not in canonical timestamp format"),
+        ("2024-05-06T15:28:00.000Z", "value(s) not in canonical timestamp format"),
+        ("2024-05-06 15:28:00Z", "value(s) not in canonical timestamp format"),
+        ("2024-05-06T15:28Z", "value(s) not in canonical timestamp format"),
+        ("2024-02-30T15:28:00Z", "impossible calendar timestamp value(s)"),
+        ("2024-05-06T25:28:00Z", "impossible calendar timestamp value(s)"),
+    ],
+)
+def test_non_canonical_timestamp_is_rejected(tables_copy, value, problem):
+    tables_copy["encounters"].loc[0, "encounter_at"] = value
+    assert f"encounters.encounter_at: 1 {problem}" in _errors(tables_copy)
+
+
+@pytest.mark.parametrize(
+    "value, problem",
+    [
+        ("2024-03-29T00:00:00Z", "value(s) not in canonical date format"),
+        ("2024-3-29", "value(s) not in canonical date format"),
+        ("2024-02-30", "impossible calendar date value(s)"),
+    ],
+)
+def test_non_canonical_date_is_rejected(tables_copy, value, problem):
+    tables_copy["subjects"].loc[0, "enrolled_on"] = value
+    assert f"subjects.enrolled_on: 1 {problem}" in _errors(tables_copy)
+
+
+def test_parsed_timestamp_object_is_rejected(tables_copy):
+    enc = tables_copy["encounters"]
+    enc["encounter_at"] = pd.to_datetime(enc["encounter_at"], utc=True).astype(object)
+    assert "not in canonical timestamp format" in _errors(tables_copy)
+
+
+@pytest.mark.parametrize("marker", ["SBP", "DBP", "BMI"])
+def test_not_resulted_rejected_for_non_lab_marker(tables_copy, marker):
+    obs = tables_copy["observations"]
+    row = obs.index[obs["marker_code"] == marker][0]
+    obs.loc[row, ["value", "missing_reason"]] = [float("nan"), "not_resulted"]
+    assert "null value(s) for non-laboratory markers" in _errors(tables_copy)
+
+
+def test_not_resulted_allowed_for_lab_marker(tables_copy):
+    obs = tables_copy["observations"]
+    row = obs.index[obs["marker_code"] == "GLU"][0]
+    obs.loc[row, ["value", "missing_reason"]] = [float("nan"), "not_resulted"]
+    validate(tables_copy)

@@ -15,6 +15,8 @@ from typing import Any
 import pandas as pd
 
 DEFAULT_VERSION = "0.1.0"
+# strptime formats matching the contract's date and timestamp patterns.
+CANONICAL_FORMATS = {"date": "%Y-%m-%d", "timestamp": "%Y-%m-%dT%H:%M:%SZ"}
 
 
 class ContractError(ValueError):
@@ -89,10 +91,18 @@ def _check_field(df: pd.DataFrame, table: str, field: dict[str, Any], errors: li
             if below:
                 errors.append(f"{table}.{name}: {below} value(s) below minimum {field['min']}")
     elif ftype in ("date", "timestamp"):
-        parsed = pd.to_datetime(present, errors="coerce", utc=True)
-        bad = int(parsed.isna().sum())
+        # Canonical text only: a lenient parser would accept "+00:00" or seconds and
+        # break byte-level parity between platforms.
+        as_text = present.map(lambda v: v if isinstance(v, str) else "")
+        canonical = as_text.str.fullmatch(field["pattern"])
+        bad = int((~canonical).sum())
         if bad:
-            errors.append(f"{table}.{name}: {bad} unparseable {ftype} value(s)")
+            errors.append(f"{table}.{name}: {bad} value(s) not in canonical {ftype} format")
+        fmt = CANONICAL_FORMATS[ftype]
+        parsed = pd.to_datetime(as_text[canonical], format=fmt, errors="coerce")
+        impossible = int(parsed.isna().sum())
+        if impossible:
+            errors.append(f"{table}.{name}: {impossible} impossible calendar {ftype} value(s)")
 
 
 def _sorted_ok(df: pd.DataFrame, keys: list[str]) -> bool:
@@ -202,6 +212,13 @@ def _check_relations(
     if inconsistent:
         errors.append(
             f"observations: {inconsistent} row(s) where missing_reason does not match a null value"
+        )
+    labs = [c for c, m in contract.markers.items() if m["laboratory"]]
+    non_lab_null = int((value_null & ~obs["marker_code"].isin(labs)).sum())
+    if non_lab_null:
+        errors.append(
+            f"observations: {non_lab_null} null value(s) for non-laboratory markers; "
+            f"not_resulted applies only to {', '.join(labs)}"
         )
 
     dup_marker = int(obs.duplicated(["encounter_id", "marker_code"]).sum())

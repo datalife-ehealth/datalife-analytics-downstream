@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .contract import ContractError, validate
 from .generator import GeneratorConfig, generate
-from .io import FORMATS, read_dataset, write_dataset
+from .io import FORMATS, read_dataset, verify_manifest, write_dataset
 
 
 def _date(text: str) -> date:
@@ -66,11 +66,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        validate(read_dataset(args.directory, prefix=args.prefix))
-    except ContractError as exc:
-        print(str(exc), file=sys.stderr)
+        tables = read_dataset(args.directory, prefix=args.prefix)
+    except (OSError, KeyError, ValueError) as exc:
+        print(f"error: cannot read dataset: {exc}", file=sys.stderr)
         return 1
-    print(f"ok: {args.directory} satisfies the contract")
+    errors = verify_manifest(args.directory, tables, prefix=args.prefix)
+    try:
+        validate(tables)
+    except ContractError as exc:
+        errors += exc.errors
+    if errors:
+        print("Validation failed:\n- " + "\n- ".join(errors), file=sys.stderr)
+        return 1
+    print(f"ok: {args.directory} matches its manifest and satisfies the contract")
     return 0
 
 

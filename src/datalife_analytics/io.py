@@ -129,20 +129,55 @@ def read_dataset(directory: str | Path, prefix: str = "") -> dict[str, pd.DataFr
             df = pd.read_csv(path, dtype=str, keep_default_na=False, na_values=[""])
         else:
             df = pq.read_table(path).to_pandas()
-        tables[name] = _canonicalise(df, name, contract)
+        tables[name] = _canonicalise(df, name, contract, from_text=manifest["format"] == "csv")
     return tables
 
 
-def _canonicalise(df: pd.DataFrame, table: str, contract: Contract) -> pd.DataFrame:
+def verify_manifest(
+    directory: str | Path, tables: dict[str, pd.DataFrame], prefix: str = ""
+) -> list[str]:
+    """Check row counts and SHA-256 checksums against manifest.json.
+
+    CSV files are hashed byte for byte. Parquet tables are hashed through their
+    canonical CSV form, which is what the manifest records for both formats.
+    Returns a list of problems; empty means the data matches the manifest.
+    """
+    directory = Path(directory)
+    manifest = json.loads((directory / f"{prefix}manifest.json").read_text("utf-8"))
+    errors = []
+    for name, meta in manifest["tables"].items():
+        df = tables.get(name)
+        if df is None:
+            errors.append(f"{name}: listed in manifest but not loaded")
+            continue
+        if len(df) != meta["rows"]:
+            errors.append(f"{name}: {len(df)} row(s) but manifest records {meta['rows']}")
+        if manifest["format"] == "csv":
+            data = (directory / meta["path"]).read_bytes()
+        else:
+            data = canonical_csv(df)
+        if sha256(data) != meta["canonical_csv_sha256"]:
+            errors.append(f"{name}: SHA-256 does not match manifest (data changed after writing)")
+    return errors
+
+
+def _canonicalise(
+    df: pd.DataFrame, table: str, contract: Contract, from_text: bool = False
+) -> pd.DataFrame:
+    """Convert to canonical text. CSV dates and timestamps are kept exactly as written,
+    so the validator sees non-canonical text instead of a silently re-formatted value."""
     out = pd.DataFrame(index=df.index)
     for f in contract.tables[table]["fields"]:
         col = df[f["name"]]
         if f["type"] == "float":
             out[f["name"]] = pd.to_numeric(col).astype("float64")
+        elif f["type"] in ("date", "timestamp") and from_text:
+            out[f["name"]] = col.astype(object).where(col.notna(), None)
         elif f["type"] == "date":
             out[f["name"]] = pd.to_datetime(col).dt.strftime("%Y-%m-%d")
         elif f["type"] == "timestamp":
-            out[f["name"]] = pd.to_datetime(col, utc=True).dt.strftime("%Y-%m-%dT%H:%M:00Z")
+            # %S, not a literal 00, so stray seconds surface as a contract error.
+            out[f["name"]] = pd.to_datetime(col, utc=True).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
         else:
             out[f["name"]] = col.astype(object).where(col.notna(), None)
     return out
