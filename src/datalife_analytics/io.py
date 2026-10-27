@@ -176,8 +176,13 @@ def _canonicalise(
         elif f["type"] == "date":
             out[f["name"]] = pd.to_datetime(col).dt.strftime("%Y-%m-%d")
         elif f["type"] == "timestamp":
-            # %S, not a literal 00, so stray seconds surface as a contract error.
-            out[f["name"]] = pd.to_datetime(col, utc=True).dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            # %S, not a literal 00, so stray seconds surface as a contract error. Likewise
+            # any sub-second part is kept, so fractional seconds fail validation too.
+            ts = pd.to_datetime(col, utc=True)
+            text = ts.dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            frac = ts.notna() & (ts != ts.dt.floor("s"))
+            text[frac] = ts[frac].map(lambda t: t.isoformat().replace("+00:00", "Z"))
+            out[f["name"]] = text
         else:
             out[f["name"]] = col.astype(object).where(col.notna(), None)
     return out

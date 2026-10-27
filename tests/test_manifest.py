@@ -2,6 +2,9 @@
 
 import json
 
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import pytest
 from conftest import FIXTURE_DIR, FIXTURE_PREFIX
 
@@ -51,6 +54,21 @@ def test_parquet_edit_breaks_checksum(tmp_path, small_config, small_tables, caps
     )
     assert main(["validate", str(tmp_path / "new")]) == 1
     assert "subjects: SHA-256 does not match manifest" in capsys.readouterr().err
+
+
+def test_parquet_fractional_seconds_fail_validation(tmp_path, small_config, small_tables, capsys):
+    write_dataset(small_tables, small_config, tmp_path, fmt="parquet")
+    path = tmp_path / "observations.parquet"
+    table = pq.read_table(path)
+    idx = table.schema.get_field_index("observed_at")
+    ts = table.column(idx).cast(pa.timestamp("us", tz="UTC"))
+    offset = pa.array([123456] + [0] * (len(table) - 1), type=pa.duration("us"))
+    table = table.set_column(idx, table.schema.field(idx).with_type(ts.type), pc.add(ts, offset))
+    pq.write_table(table, path)
+    assert main(["validate", str(tmp_path)]) == 1
+    assert "observations.observed_at: 1 value(s) not in canonical timestamp format" in (
+        capsys.readouterr().err
+    )
 
 
 def test_edited_manifest_rows_are_reported(tmp_path, small_config, small_tables, capsys):
