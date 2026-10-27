@@ -23,6 +23,7 @@ dev = [
 
 [project.scripts]
 datalife-fixtures = "datalife_analytics.cli:main"
+datalife-baseline = "datalife_analytics.baseline.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
