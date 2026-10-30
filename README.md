@@ -108,12 +108,14 @@ pip install -e ".[dev]" -c constraints.txt
 pytest
 datalife-fixtures generate --seed 42 --subjects 1000 --format parquet --out data/generated
 datalife-fixtures validate data/generated
+datalife-baseline --seed 20260101 --subjects 80 --split-seed 7 --out reports/generated
 ```
 
 The generator and draft v0.1.0 data contract are documented in
-[docs/generator.md](docs/generator.md). Generated data stays in the ignored `data/`
-folder. Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes to the
-contract or adding a baseline.
+[docs/generator.md](docs/generator.md). The leakage-safe baseline (issue #3) is
+documented in [docs/baseline-study.md](docs/baseline-study.md). Generated data and
+reports stay in the ignored `data/` and `reports/generated/` folders. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before proposing changes to the contract.
 
 ## Stewardship and contact
 

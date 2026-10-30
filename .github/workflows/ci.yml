@@ -77,3 +77,17 @@ jobs:
         run: |
           datalife-fixtures generate --seed 1 --subjects 300 --format parquet --out data/generated
           datalife-fixtures validate data/generated
+
+      - name: Leakage-safe baseline on the generated cohort
+        run: |
+          datalife-baseline --input data/generated --split-seed 7 --out reports/generated
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path("reports/generated/metrics.json").read_text("utf-8"))
+          assert payload["lineage"]["contract_version"] == "0.1.0"
+          assert "naive_prevalence" in payload["models"]
+          assert "ridge_logistic" in payload["models"]
+          assert payload["limitations"]
+          print("baseline report checks passed")
+          PY

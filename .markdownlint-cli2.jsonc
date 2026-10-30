@@ -1,0 +1,7 @@
+{
+  "ignores": [
+    "reports/generated/**",
+    ".venv/**",
+    "venv/**"
+  ]
+}
