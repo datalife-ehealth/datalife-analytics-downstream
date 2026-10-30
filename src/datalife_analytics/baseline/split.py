@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+
+import pandas as pd
 
 from .study import ForwardExample
 
@@ -67,6 +69,50 @@ def assert_no_time_leakage(examples: Sequence[ForwardExample]) -> None:
         elif example.feature_end_date >= example.outcome_date:
             issues.append(
                 f"time leakage: subject {example.subject_key} feature window is not before outcome"
+            )
+    if issues:
+        raise LeakageError(issues)
+
+
+def assert_no_time_leakage_against_tables(
+    examples: Sequence[ForwardExample],
+    tables: Mapping[str, pd.DataFrame],
+) -> None:
+    """Fail if any example's features include a table row at or after the outcome.
+
+    This is the table-level counterpart to :func:`assert_no_time_leakage`. It exists
+    so a regression in example construction (a future encounter folded into
+    covariates) cannot reach model fitting even if the in-memory dates look plausible.
+    """
+    issues: list[str] = []
+    enc = tables["encounters"]
+    obs = tables["observations"]
+    for example in examples:
+        future_enc = enc[
+            (enc["subject_key"] == example.subject_key)
+            & (enc["encounter_at"].astype(str) >= example.outcome_date)
+        ]
+        future_times = set(future_enc["encounter_at"].astype(str))
+        if future_times & set(example.feature_dates):
+            issues.append(
+                f"time leakage: subject {example.subject_key} used a future encounter as a feature"
+            )
+            continue
+        feature_ids = set(
+            enc.loc[
+                (enc["subject_key"] == example.subject_key)
+                & (enc["encounter_at"].astype(str).isin(example.feature_dates)),
+                "encounter_id",
+            ]
+        )
+        future_obs = obs[
+            obs["encounter_id"].isin(feature_ids)
+            & (obs["observed_at"].astype(str) >= example.outcome_date)
+        ]
+        if len(future_obs):
+            issues.append(
+                "time leakage: subject "
+                f"{example.subject_key} used a future observation as a feature"
             )
     if issues:
         raise LeakageError(issues)

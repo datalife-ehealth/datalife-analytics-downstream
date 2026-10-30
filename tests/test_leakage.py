@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pandas as pd
 import pytest
 
+from datalife_analytics.baseline.models import RidgeLogistic
+from datalife_analytics.baseline.pipeline import run_study
 from datalife_analytics.baseline.split import (
     LeakageError,
     assert_no_cross_split_time_leakage,
@@ -117,11 +122,112 @@ def test_missing_columns_are_rejected(tables_copy):
 
 
 def test_pipeline_validate_rejects_mismatch_before_fit(tables_copy):
-    from datalife_analytics.baseline.pipeline import run_study
-
     tables_copy["subjects"] = tables_copy["subjects"].drop(columns=["region"])
     with pytest.raises(ContractError, match="missing column"):
         run_study(tables_copy, split_seed=1)
+
+
+def _next_id(series: pd.Series, prefix: str, width: int) -> str:
+    nums = series.astype(str).str.removeprefix(prefix).astype(int)
+    return f"{prefix}{int(nums.max()) + 1:0{width}d}"
+
+
+def _inject_future_bp_encounter(tables: dict[str, pd.DataFrame], subject_key: str, ts: str) -> None:
+    """Append a contract-valid future encounter with paired SBP/DBP."""
+    enc_id = _next_id(tables["encounters"]["encounter_id"], "enc-", 7)
+    obs_n = int(tables["observations"]["observation_id"].str.removeprefix("obs-").astype(int).max())
+    encounter = {
+        "encounter_id": enc_id,
+        "subject_key": subject_key,
+        "encounter_at": ts,
+        "encounter_type": "routine",
+    }
+    sbp = {
+        "observation_id": f"obs-{obs_n + 1:08d}",
+        "subject_key": subject_key,
+        "encounter_id": enc_id,
+        "observed_at": ts,
+        "marker_code": "SBP",
+        "value": 150.0,
+        "unit": "mmHg",
+        "source_kind": "json",
+        "missing_reason": None,
+    }
+    dbp = {**sbp, "observation_id": f"obs-{obs_n + 2:08d}", "marker_code": "DBP", "value": 90.0}
+    tables["encounters"] = pd.concat(
+        [tables["encounters"], pd.DataFrame([encounter])], ignore_index=True
+    )
+    tables["observations"] = pd.concat(
+        [tables["observations"], pd.DataFrame([sbp, dbp])], ignore_index=True
+    )
+    tables["encounters"] = (
+        tables["encounters"]
+        .sort_values(["subject_key", "encounter_at", "encounter_id"], kind="mergesort")
+        .reset_index(drop=True)
+    )
+    tables["observations"] = (
+        tables["observations"]
+        .sort_values(
+            ["subject_key", "observed_at", "marker_code", "observation_id"], kind="mergesort"
+        )
+        .reset_index(drop=True)
+    )
+
+
+def test_run_study_halts_before_fit_when_future_encounter_leaks_into_features(
+    tables_copy, monkeypatch
+):
+    """Integration: a future-dated row used as a covariate must not reach the model."""
+    original = {name: frame.copy() for name, frame in tables_copy.items()}
+    examples, flow = build_forward_examples(original)
+    target = next(ex for ex in examples if ex.feature_dates)
+    future_ts = "2029-12-17T10:00:00Z"
+    _inject_future_bp_encounter(tables_copy, target.subject_key, future_ts)
+    validate(tables_copy)
+
+    leaked = replace(
+        target,
+        feature_dates=(*target.feature_dates, future_ts),
+        feature_end_date=future_ts,
+    )
+    rest = [ex for ex in examples if ex.subject_key != target.subject_key]
+
+    def leaky_build(*_args, **_kwargs):
+        # Regression stand-in: keep the original (earlier) outcome but fold the
+        # injected future encounter into the covariates.
+        return [leaked, *rest], flow
+
+    monkeypatch.setattr("datalife_analytics.baseline.pipeline.build_forward_examples", leaky_build)
+
+    fits = {"n": 0}
+    original_fit = RidgeLogistic.fit
+
+    def counting_fit(self, *args, **kwargs):
+        fits["n"] += 1
+        return original_fit(self, *args, **kwargs)
+
+    monkeypatch.setattr(RidgeLogistic, "fit", counting_fit)
+
+    with pytest.raises(LeakageError, match="time leakage"):
+        run_study(tables_copy, split_seed=1)
+    assert fits["n"] == 0
+
+
+def test_run_study_treats_injected_future_encounter_as_outcome_not_a_feature(tables_copy):
+    # A later row on the timeline becomes the outcome. That is forward-looking, not
+    # leakage, so run_study must still complete.
+    examples, _ = build_forward_examples(
+        {name: frame.copy() for name, frame in tables_copy.items()}
+    )
+    target = next(ex for ex in examples if ex.feature_dates)
+    future_ts = "2029-12-17T10:00:00Z"
+    _inject_future_bp_encounter(tables_copy, target.subject_key, future_ts)
+    rebuilt, _ = build_forward_examples(tables_copy)
+    leaked = next(ex for ex in rebuilt if ex.subject_key == target.subject_key)
+    assert leaked.outcome_date == future_ts
+    assert future_ts not in leaked.feature_dates
+    result = run_study(tables_copy, split_seed=1)
+    assert "ridge_logistic" in result.payload["models"]
 
 
 def test_generated_tables_match_contract():

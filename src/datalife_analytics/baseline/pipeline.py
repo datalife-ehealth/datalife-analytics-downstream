@@ -17,6 +17,7 @@ from .split import (
     assert_no_cross_split_time_leakage,
     assert_no_subject_leakage,
     assert_no_time_leakage,
+    assert_no_time_leakage_against_tables,
     subject_split,
 )
 from .study import build_forward_examples, missingness_summary
@@ -40,6 +41,9 @@ def run_study(
     contract = load_contract(contract_version) if contract_version else load_contract()
     validate(tables, contract)
     examples, flow = build_forward_examples(tables, contract)
+    # Halt on leaked dates before the split or any model sees the examples.
+    assert_no_time_leakage(examples)
+    assert_no_time_leakage_against_tables(examples, tables)
     train, test = subject_split(examples, seed=split_seed, train_fraction=train_fraction)
     assert_no_subject_leakage(train, test)
     assert_no_time_leakage(train)
