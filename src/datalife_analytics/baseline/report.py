@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .split import KFOLD_RESEARCH_ONLY
+
 
 def _fmt(value: object) -> str:
     if value is None:
@@ -20,6 +22,18 @@ def _metrics_table(side: dict[str, Any]) -> str:
         return f"_empty partition: {side.get('note', 'metrics withheld')}_"
     auc_ci = (side.get("uncertainty") or {}).get("roc_auc") or {}
     acc_ci = (side.get("uncertainty") or {}).get("accuracy") or {}
+    foldwise = side.get("roc_auc_foldwise")
+    if foldwise:
+        n_folds = len(foldwise.get("folds") or [])
+        auc_row = (
+            f"| ROC AUC (fold-wise) | {_fmt(foldwise.get('mean'))} ± "
+            f"{_fmt(foldwise.get('std'))} across {n_folds} fold(s); pooled AUC withheld |"
+        )
+    else:
+        auc_row = (
+            f"| ROC AUC | {_fmt(side.get('roc_auc'))} "
+            f"(95% boot {_fmt(auc_ci.get('lo'))}–{_fmt(auc_ci.get('hi'))}) |"
+        )
     return "\n".join(
         [
             "| metric | value |",
@@ -29,8 +43,7 @@ def _metrics_table(side: dict[str, Any]) -> str:
             f"(95% boot {_fmt(acc_ci.get('lo'))}–{_fmt(acc_ci.get('hi'))}) |",
             f"| balanced accuracy | {_fmt(side.get('balanced_accuracy'))} |",
             f"| Brier | {_fmt(side.get('brier'))} |",
-            f"| ROC AUC | {_fmt(side.get('roc_auc'))} "
-            f"(95% boot {_fmt(auc_ci.get('lo'))}–{_fmt(auc_ci.get('hi'))}) |",
+            auc_row,
             f"| ECE (5-bin) | {_fmt(side.get('ece'))} |",
         ]
     )
@@ -60,6 +73,40 @@ def to_markdown(payload: dict[str, Any]) -> str:
             missing_lines.append(f"| `{table}.{name}` | {fraction:.3f} |")
 
     limitations = "\n".join(f"- {item}" for item in payload["limitations"])
+    kfold = split.get("mode") == "subject_stratified_kfold"
+    if kfold:
+        research_note = f"\n> {KFOLD_RESEARCH_ONLY}\n"
+        n_splits_row = f"| n_splits | {lineage['n_splits']} |\n"
+        cohort_split = (
+            f"| folds | {split['n_splits']} |\n| out-of-fold examples | {split['n_examples']} |"
+        )
+        fold_lines = [
+            "| fold | train examples (subjects) | validation examples (subjects) "
+            "| validation positive rate |",
+            "|---|---|---|---|",
+        ]
+        for fold in split["folds"]:
+            fold_lines.append(
+                f"| {fold['fold']} | {fold['n_train']} ({fold['train_subjects']}) | "
+                f"{fold['n_validation']} ({fold['validation_subjects']}) | "
+                f"{fold['validation_positive_rate']:.3f} |"
+            )
+        fold_section = (
+            "\n## Folds\n\n"
+            "Train metrics below are means across folds. Sample-level test metrics "
+            "(accuracy, balanced accuracy, Brier, ECE) are pooled over out-of-fold "
+            "predictions, so each subject is scored once. ROC AUC is reported fold-wise "
+            "(mean ± std) because scores from independently fitted folds share no scale, "
+            "so a pooled AUC is withheld.\n\n" + "\n".join(fold_lines) + "\n"
+        )
+    else:
+        research_note = ""
+        n_splits_row = ""
+        cohort_split = (
+            f"| train examples (subjects) | {split['n_train']} ({split['train_subjects']}) |\n"
+            f"| test examples (subjects) | {split['n_test']} ({split['test_subjects']}) |"
+        )
+        fold_section = ""
 
     return f"""# Baseline study report
 
@@ -69,7 +116,7 @@ def to_markdown(payload: dict[str, Any]) -> str:
 {lineage["study_question"]}
 
 > {lineage["non_use"]}
-
+{research_note}
 ## Lineage
 
 | key | value |
@@ -81,8 +128,8 @@ def to_markdown(payload: dict[str, Any]) -> str:
 | input_path | {lineage["input_path"]} |
 | n_subjects | {lineage["n_subjects"]} |
 | split_seed | {lineage["split_seed"]} |
-| train_fraction | {lineage["train_fraction"]} |
-| SBP threshold | {lineage["elevated_sbp_threshold"]} |
+| train_fraction | {"N/A" if lineage.get("train_fraction") is None else lineage["train_fraction"]} |
+{n_splits_row}| SBP threshold | {lineage["elevated_sbp_threshold"]} |
 
 ## Cohort flow
 
@@ -95,10 +142,9 @@ def to_markdown(payload: dict[str, Any]) -> str:
 | dropped (no outcome SBP) | {flow["dropped_no_outcome_sbp"]} |
 | dropped (no prior encounter) | {flow["dropped_no_prior"]} |
 | forward examples | {flow["n_examples"]} |
-| train examples (subjects) | {split["n_train"]} ({split["train_subjects"]}) |
-| test examples (subjects) | {split["n_test"]} ({split["test_subjects"]}) |
+{cohort_split}
 
-## Missingness
+{fold_section}## Missingness
 
 {chr(10).join(missing_lines)}
 
