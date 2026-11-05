@@ -22,6 +22,24 @@ because it has had obvious identifiers removed.
 - Clear notebook outputs and local paths before committing.
 - Add a model card or study report for material results.
 
+## Card templates
+
+Reviewable documentation templates live in [`docs/templates/`](docs/templates/README.md).
+Use the matching card so a reader can judge provenance and limits before the work is
+merged:
+
+- **Dataset card** — when a new dataset, export, or a new version of one is
+  introduced or consumed.
+- **Study card** — when a new analysis or model experiment is designed, before it
+  is implemented.
+- **Result / model card** — when a study or model is finished and its results are
+  presented or reused.
+
+Copy a template next to what it describes, fill every required field, and keep
+required facts distinct from optional narrative. Templates are a review aid, not a
+certification of regulatory, clinical, privacy, or fairness compliance. Examples
+must remain synthetic.
+
 ## Pull requests
 
 Keep one experiment or infrastructure concern per pull request. Link its issue or
