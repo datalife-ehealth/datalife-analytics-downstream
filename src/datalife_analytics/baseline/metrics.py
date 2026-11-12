@@ -44,6 +44,10 @@ def roc_auc(labels: np.ndarray, scores: np.ndarray) -> float:
     n_neg = int(labels.size - n_pos)
     if n_pos == 0 or n_neg == 0:
         return float("nan")
+    # Non-finite scores (NaN/+-inf) break the tie-ranking loop below, since a NaN
+    # never compares equal to itself and the loop would not advance. Withhold.
+    if not np.all(np.isfinite(scores)):
+        return float("nan")
     order = np.argsort(scores, kind="mergesort")
     ranked_labels = labels[order]
     ranks = np.empty(labels.size, dtype=float)
