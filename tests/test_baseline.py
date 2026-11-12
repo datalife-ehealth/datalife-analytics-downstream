@@ -11,7 +11,12 @@ import pytest
 
 from datalife_analytics.baseline.cli import main
 from datalife_analytics.baseline.metrics import roc_auc
-from datalife_analytics.baseline.pipeline import _average_summaries, run_study
+from datalife_analytics.baseline.pipeline import (
+    _as_count,
+    _average_bound,
+    _average_summaries,
+    run_study,
+)
 from datalife_analytics.baseline.split import LeakageError, subject_stratified_kfold
 from datalife_analytics.baseline.study import ForwardExample
 from datalife_analytics.io import read_dataset
@@ -314,8 +319,11 @@ def test_average_summaries_handles_non_finite_counts_and_non_dict_items():
     summaries = [
         None,  # non-dict entry must be skipped, not .get()'d
         42,  # ditto
+        "bad",
+        [],
         {"n": float("nan"), "accuracy": 0.9},  # nan count -> treated as absent
         {"n": float("inf"), "accuracy": 0.9},  # inf count -> treated as absent
+        {"n": float("-inf"), "accuracy": 0.9},  # ditto
         {"n": 6, "n_positive": 2, "accuracy": 0.75},  # the only real fold
     ]
     averaged = _average_summaries(summaries)
@@ -323,15 +331,86 @@ def test_average_summaries_handles_non_finite_counts_and_non_dict_items():
     assert averaged["accuracy"] == pytest.approx(0.75)
 
 
-def test_as_count_rejects_non_finite():
-    from datalife_analytics.baseline.pipeline import _as_count
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, 0),
+        (True, 0),
+        (False, 0),
+        (-1, 0),
+        (-0.0, 0),
+        (3.0, 3),
+        (3.5, 0),
+        (float("nan"), 0),
+        (float("inf"), 0),
+        (float("-inf"), 0),
+        ("3", 0),
+        ("bad", 0),
+        ([], 0),
+    ],
+)
+def test_as_count_rejects_invalid_values(value, expected):
+    assert _as_count(value) == expected
 
-    assert _as_count(float("nan")) == 0
-    assert _as_count(float("inf")) == 0
-    assert _as_count(float("-inf")) == 0
-    assert _as_count(5) == 5
-    assert _as_count(None) == 0
-    assert _as_count(True) == 0
+
+def test_average_summaries_withholds_non_finite_metrics():
+    averaged = _average_summaries(
+        [
+            {"n": 4, "accuracy": float("nan"), "brier": float("inf")},
+            {"n": 4, "accuracy": 0.75, "brier": float("-inf")},
+            {"n": 4, "accuracy": True, "brier": "bad"},
+        ]
+    )
+    assert averaged["accuracy"] == pytest.approx(0.75)
+    assert averaged["brier"] is None
+
+
+def test_average_bound_skips_malformed_entries_and_withholds_non_finite_values():
+    items = [
+        None,
+        42,
+        "bad",
+        [],
+        {},
+        {"accuracy": None},
+        {"accuracy": 0.2},  # interval must be a dict
+        {"accuracy": {"lo": True}},
+        {"accuracy": {"lo": "bad"}},
+        {"accuracy": {"lo": float("nan")}},
+        {"accuracy": {"lo": float("inf")}},
+        {"accuracy": {"lo": float("-inf")}},
+        {"accuracy": {"lo": 0.4}},
+        {"accuracy": {"lo": 0.8}},
+    ]
+    assert _average_bound(items, "accuracy", "lo") == pytest.approx(0.6)
+    assert _average_bound(items[:-2], "accuracy", "lo") is None
+
+
+def test_average_summaries_skips_malformed_uncertainty_and_non_finite_bounds():
+    averaged = _average_summaries(
+        [
+            {
+                "n": 4,
+                "uncertainty": ["bad"],
+            },
+            {
+                "n": 4,
+                "uncertainty": {
+                    "accuracy": {"lo": float("nan"), "hi": float("inf")},
+                    "roc_auc": 42,
+                },
+            },
+            {
+                "n": 4,
+                "uncertainty": {
+                    "accuracy": {"lo": 0.2, "hi": 0.8},
+                    "roc_auc": {"lo": 0.3, "hi": 0.7},
+                },
+            },
+        ]
+    )
+    assert averaged["uncertainty"]["accuracy"] == {"lo": 0.2, "hi": 0.8}
+    assert averaged["uncertainty"]["roc_auc"] == {"lo": 0.3, "hi": 0.7}
 
 
 def test_cli_help_keeps_kfold_optional(capsys):

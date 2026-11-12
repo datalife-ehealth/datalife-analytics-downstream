@@ -84,34 +84,48 @@ def _fit_split(
     }
 
 
-def _average_bound(items: list[dict[str, Any]], metric: str, side: str) -> float | None:
+def _average_bound(items: list[Any], metric: str, side: str) -> float | None:
     values: list[float] = []
     for item in items:
+        if not isinstance(item, dict):
+            continue
         interval = item.get(metric)
         if not isinstance(interval, dict):
             continue
         bound = interval.get(side)
-        if isinstance(bound, (int, float)) and not isinstance(bound, bool):
+        if _is_finite_number(bound):
             values.append(float(bound))
     if not values:
         return None
     return float(sum(values) / len(values))
 
 
+def _is_finite_number(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
 def _as_count(value: Any) -> int:
     """Coerce a count-like field to int, treating non-numeric or non-finite payloads as 0.
 
-    Non-finite floats (``nan``, ``+/-inf``) would raise ``ValueError``/``OverflowError``
-    under ``int()``, so they are treated as absent.
+    Counts must be non-negative integers. Invalid values are treated as absent.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or value is None:
         return 0
-    if not math.isfinite(value):
+    if isinstance(value, int):
+        return value if value >= 0 else 0
+    if not isinstance(value, float):
+        return 0
+    if not math.isfinite(value) or value < 0 or not value.is_integer():
         return 0
     return int(value)
 
 
-def _average_summaries(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+def _average_summaries(summaries: list[Any]) -> dict[str, Any]:
     """Mean of per-fold training metrics. ``n`` is the mean fold size.
 
     Tolerates malformed input: list entries that are ``None`` or non-dict are
@@ -133,11 +147,7 @@ def _average_summaries(summaries: list[dict[str, Any]]) -> dict[str, Any]:
         "subgroups": {},
     }
     for key in _METRIC_KEYS:
-        values = [
-            float(item[key])
-            for item in scored
-            if isinstance(item.get(key), (int, float)) and not isinstance(item.get(key), bool)
-        ]
+        values = [float(item[key]) for item in scored if _is_finite_number(item.get(key))]
         averaged[key] = float(sum(values) / len(values)) if values else None
     intervals = [
         item["uncertainty"] for item in scored if isinstance(item.get("uncertainty"), dict)
