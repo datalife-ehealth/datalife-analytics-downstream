@@ -76,6 +76,92 @@ datalife-baseline --input tests/fixtures --prefix synthetic_v0_1_0_ \
 
 The fixture is small on purpose; use a generated cohort for less noisy metrics.
 
+## Comparing baseline reports for reproducibility
+
+Use `datalife-baseline-diff` to compare two baseline study `metrics.json` reports and detect reproducibility drift.
+
+The comparison checks numerical metrics against explicit absolute tolerances and verifies that the following lineage fields match exactly:
+
+- `contract`
+- `contract_version`
+- `generator_seed`
+
+### Configure tolerances
+
+Create a JSON tolerance map:
+
+```json
+{
+  "accuracy": 0.02,
+  "brier": 0.01,
+  "roc_auc": 0.03
+}
+```
+
+These values are illustrative research tolerances, not clinical performance thresholds. Each numerical metric passes when the absolute difference between the baseline and current value is less than or equal to its configured tolerance.
+
+### Run the comparison
+
+The supported CLI entry point is `datalife-baseline-diff`, installed through
+the package's console scripts. The `python -m datalife_analytics` entry point
+is reserved for fixture generation and validation; it does not support
+the `baseline-diff` subcommand.
+
+```bash
+datalife-baseline-diff \
+  --baseline reports/generated/metrics.json \
+  --current reports/current/metrics.json \
+  --tolerances tolerances.json
+```
+
+For a machine-readable summary suitable for CI:
+
+```bash
+datalife-baseline-diff \
+  --baseline reports/generated/metrics.json \
+  --current reports/current/metrics.json \
+  --tolerances tolerances.json \
+  --json
+```
+
+Example JSON output for a passing comparison:
+
+```json
+{
+  "status": "PASS",
+  "checks": {
+    "accuracy": "PASS",
+    "brier": "PASS",
+    "roc_auc": "PASS",
+    "lineage.contract": "PASS",
+    "lineage.contract_version": "PASS",
+    "lineage.generator_seed": "PASS",
+    "lineage.split_seed": "PASS",
+    "lineage.train_fraction": "PASS",
+    "lineage.n_subjects": "PASS",
+    "split.n_train": "PASS",
+    "split.n_test": "PASS",
+    "split.train_subjects": "PASS",
+    "split.test_subjects": "PASS",
+    "test.n": "PASS"
+  }
+}
+```
+
+Each check reports `PASS`, `FAIL`, or `MISSING`, and the overall status is `PASS` only when every required comparison passes.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | All comparisons pass |
+| `1` | Metric, lineage, or sample-count drift |
+| `2` | Missing required fields, invalid schema, malformed or unreadable input |
+
+Diagnostics intentionally avoid printing report payloads, feature values, row values, or subject identifiers.
+
+**Research limitation:** This tool is a research reproducibility guard, not a clinical performance gate. Passing comparisons do not establish clinical safety, effectiveness, fairness, or suitability for deployment.
+
 ## Adding a model without breaking the contract
 
 1. Keep contract `0.1.0` unless the field set actually changes.
