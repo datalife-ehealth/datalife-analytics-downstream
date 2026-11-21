@@ -83,9 +83,10 @@ def test_cli_from_committed_fixture(tmp_path: Path):
         ]
     )
     assert code == 0
-    text = (out / "metrics.json").read_text("utf-8")
-    assert "tests/fixtures" in text
-    assert "0.1.0" in text
+    data = json.loads((out / "metrics.json").read_text("utf-8"))
+
+    assert Path(data["lineage"]["input_path"]) == Path("tests/fixtures")
+    assert data["lineage"]["contract_version"] == "0.1.0"
 
 
 def test_cli_rejects_bad_input(tmp_path: Path, capsys):

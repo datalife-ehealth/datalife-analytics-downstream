@@ -1,0 +1,5 @@
+{
+  "accuracy": 0.02,
+  "brier": 0.01,
+  "roc_auc": 0.03
+}
