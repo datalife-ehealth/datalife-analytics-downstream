@@ -19,6 +19,8 @@ dependencies = [
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    "mypy>=1.10,<2",
+    "pip-audit>=2.7,<3",
 ]
 
 [project.scripts]
@@ -35,6 +37,16 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "invariant: core scientific leakage and determinism invariants",
+]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
 
 [tool.ruff]
 line-length = 100

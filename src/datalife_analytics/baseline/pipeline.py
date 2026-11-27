@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 import numpy as np
 import pandas as pd
@@ -39,7 +39,7 @@ def _evaluate(model, rows, labels, examples_side, *, split_seed: int):
         return {"n": 0, "note": "empty partition; metrics withheld"}
     scores = model.predict_proba(rows)
     preds = model.predict(rows)
-    summary = metrics_mod.summarize(labels, preds, scores)
+    summary: dict[str, Any] = dict(metrics_mod.summarize(labels, preds, scores))
     summary["uncertainty"] = metrics_mod.bootstrap_ci(labels, scores, preds, seed=split_seed)
     summary["subgroups"] = metrics_mod.subgroup_metrics(examples_side, labels, preds, scores)
     return summary
@@ -100,7 +100,7 @@ def _average_bound(items: list[Any], metric: str, side: str) -> float | None:
     return float(sum(values) / len(values))
 
 
-def _is_finite_number(value: Any) -> bool:
+def _is_finite_number(value: Any) -> TypeGuard[int | float]:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
     try:
@@ -172,7 +172,7 @@ def _pooled_summary(
 ) -> dict[str, Any]:
     if labels.size == 0:
         return {"n": 0, "note": "empty partition; metrics withheld"}
-    summary = metrics_mod.summarize(labels, preds, scores)
+    summary: dict[str, Any] = dict(metrics_mod.summarize(labels, preds, scores))
     summary["uncertainty"] = metrics_mod.bootstrap_ci(labels, scores, preds, seed=split_seed)
     summary["subgroups"] = metrics_mod.subgroup_metrics(examples, labels, preds, scores)
     summary["note"] = "pooled out-of-fold predictions; each subject is scored once"
@@ -290,7 +290,7 @@ def _run_subject_kfold(
     logistic_pred = np.concatenate(logistic_preds)
     naive_auc = _foldwise_auc(labels, naive_scores)
     logistic_auc = _foldwise_auc(labels, logistic_scores)
-    prevalence = float(sum(item["naive"].prevalence for item in fitted) / len(fitted))
+    prevalence = float(sum(float(item["naive"].prevalence) for item in fitted) / len(fitted))
     payload: dict[str, Any] = {
         "lineage": lineage(
             split_seed=split_seed,
@@ -407,7 +407,7 @@ def run_study(
             return {"n": 0, "note": "empty partition; metrics withheld"}
         scores = model.predict_proba(rows)
         preds = model.predict(rows)
-        summary = metrics_mod.summarize(labels, preds, scores)
+        summary: dict[str, Any] = dict(metrics_mod.summarize(labels, preds, scores))
         summary["uncertainty"] = metrics_mod.bootstrap_ci(labels, scores, preds, seed=split_seed)
         summary["subgroups"] = metrics_mod.subgroup_metrics(examples_side, labels, preds, scores)
         return summary
