@@ -105,7 +105,7 @@ def bootstrap_ci(
 ) -> dict[str, dict[str, float | None]]:
     rng = random.Random(seed)
     n = int(labels.size)
-    empty = {"lo": None, "hi": None}
+    empty: dict[str, float | None] = {"lo": None, "hi": None}
     if n == 0:
         return {"accuracy": empty, "roc_auc": empty}
     accs: list[float] = []

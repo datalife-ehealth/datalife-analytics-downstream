@@ -17,7 +17,7 @@ concurrency:
 jobs:
   scaffold:
     name: Scaffold quality
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
@@ -43,14 +43,41 @@ jobs:
             test -s "$path" || { echo "Missing or empty required file: $path"; exit 1; }
           done
 
-  python:
-    name: Python ${{ matrix.python-version }} tests
-    runs-on: ubuntu-24.04
+  lint-and-typecheck:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Upgrade pip to the audited version
+        run: python -m pip install --upgrade pip==26.3
+
+      - name: Install development dependencies
+        run: python -m pip install -e ".[dev]" -c constraints.txt
+
+      - name: Ruff and mypy
+        run: |
+          ruff check .
+          ruff format --check .
+          mypy src
+
+  test-matrix:
+    name: Python ${{ matrix.python-version }} tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.13"]
+        python-version: ["3.11", "3.12"]
 
     steps:
       - name: Check out repository
@@ -62,15 +89,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install
+      - name: Upgrade pip to the audited version
+        run: python -m pip install --upgrade pip==26.3
+
+      - name: Install development dependencies
         run: python -m pip install -e ".[dev]" -c constraints.txt
 
-      - name: Lint Python
-        run: |
-          ruff check .
-          ruff format --check .
-
-      - name: Schema, privacy, and determinism tests
+      - name: Run test suite
         run: pytest
 
       - name: Generate and validate a fresh dataset
@@ -91,3 +116,51 @@ jobs:
           assert payload["limitations"]
           print("baseline report checks passed")
           PY
+
+  research-invariants:
+    name: Research invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Upgrade pip to the audited version
+        run: python -m pip install --upgrade pip==26.3
+
+      - name: Install development dependencies
+        run: python -m pip install -e ".[dev]" -c constraints.txt
+
+      - name: Run leakage and reproducibility invariants
+        run: pytest -m invariant -v
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Upgrade pip to the audited version
+        run: python -m pip install --upgrade pip==26.3
+
+      - name: Install development dependencies
+        run: python -m pip install -e ".[dev]" -c constraints.txt
+
+      - name: Audit installed dependencies
+        run: pip-audit

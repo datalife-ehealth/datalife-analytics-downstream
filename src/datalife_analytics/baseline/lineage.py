@@ -18,7 +18,7 @@ from .study import ELEVATED_SBP_THRESHOLD, NON_USE, STUDY_ID, STUDY_QUESTION
 def lineage(
     *,
     split_seed: int,
-    train_fraction: float,
+    train_fraction: float | None,
     generator_seed: int | None,
     n_subjects: int | None,
     input_path: str | None,

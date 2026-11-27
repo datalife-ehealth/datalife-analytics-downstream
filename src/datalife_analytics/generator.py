@@ -201,7 +201,7 @@ def _measure(
     trend: dict[str, float],
     t_years: float,
     contract: Contract,
-) -> list[tuple[str, float]]:
+) -> list[tuple[str, float | None]]:
     """Values for the markers taken at one encounter, in contract marker order."""
     probs = SCHEDULE_PROB[etype]
     taken = {code: rng.random() < probs[code] for code in contract.markers}
