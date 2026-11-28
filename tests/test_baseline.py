@@ -317,7 +317,7 @@ def test_average_summaries_all_empty_folds():
 
 
 def test_average_summaries_handles_non_finite_counts_and_non_dict_items():
-    summaries = [
+    summaries: list[object] = [
         None,  # non-dict entry must be skipped, not .get()'d
         42,  # ditto
         "bad",
@@ -367,7 +367,7 @@ def test_average_summaries_withholds_non_finite_metrics():
 
 
 def test_average_bound_skips_malformed_entries_and_withholds_non_finite_values():
-    items = [
+    items: list[object] = [
         None,
         42,
         "bad",
